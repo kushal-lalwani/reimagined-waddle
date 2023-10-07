@@ -1,1 +1,386 @@
-Kushal Lalwani
+import java.io.*;
+import java.sql.*;
+import java.util.*;
+import javax.sound.sampled.*;
+
+class HangmanGame {
+    private Clip backgroundMusicClip;
+    private Clip correctGuessClip;
+    private Clip wrongGuessClip;
+    private List<String> wordsEasy;
+    private List<String> wordsMedium;
+    private List<String> wordsHard;
+
+    private String selectedWord;
+    private StringBuilder guessedWord;
+    private int maxAttempts;
+    private int remainingAttempts;
+    private Set<Character> guessedLetters;
+    private boolean isGameWon;
+
+    private static final String[] HANGMAN_STAGES = {
+            "  +--------+\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "===========",
+
+            "  +--------+\n" +
+                    "  |        |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "===========",
+
+            "  +--------+\n" +
+                    "  |        |\n" +
+                    "  O        |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "===========",
+
+            "  +--------+\n" +
+                    "  |        |\n" +
+                    "  O        |\n" +
+                    "  |        |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "===========",
+
+            "  +--------+\n" +
+                    "  |        |\n" +
+                    "  O        |\n" +
+                    " /|        |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "===========",
+
+            "  +--------+\n" +
+                    "  |        |\n" +
+                    "  O        |\n" +
+                    " /|\\       |\n" +
+                    "           |\n" +
+                    "           |\n" +
+                    "===========",
+
+            "  +--------+\n" +
+                    "  |        |\n" +
+                    "  O        |\n" +
+                    " /|\\       |\n" +
+                    " /         |\n" +
+                    "           |\n" +
+                    "===========",
+
+            "  +--------+\n" +
+                    "  |        |\n" +
+                    "  O        |\n" +
+                    " /|\\       |\n" +
+                    " / \\       |\n" +
+                    "           |\n" +
+                    "===========",
+    };
+
+    public HangmanGame() {
+        wordsEasy = loadWordsFromFile("easy_words.txt");
+        wordsMedium = loadWordsFromFile("medium_words.txt");
+        wordsHard = loadWordsFromFile("hard_words.txt");
+        initAudio();
+    }
+
+    public void selectWord(int difficultyLevel) {
+        List<String> wordList;
+
+        switch (difficultyLevel) {
+            case 1:
+                wordList = wordsEasy;
+                maxAttempts = 8;
+                break;
+            case 2:
+                wordList = wordsMedium;
+                maxAttempts = 6;
+                break;
+            case 3:
+                wordList = wordsHard;
+                maxAttempts = 4;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid difficulty level.");
+        }
+
+        if (!wordList.isEmpty()) {
+            int randomIndex = (int) (Math.random() * wordList.size());
+            selectedWord = wordList.get(randomIndex);
+        } else {
+            System.out.println("No words available for this difficulty level.");
+            System.exit(1);
+        }
+
+        guessedWord = new StringBuilder("_".repeat(selectedWord.length()));
+        remainingAttempts = maxAttempts;
+        guessedLetters = new HashSet<>();
+        isGameWon = false;
+    }
+
+    public void displayWordWithGuesses() {
+        System.out.println("Word: " + guessedWord.toString());
+    }
+
+    public boolean isGameOver() {
+        return remainingAttempts <= 0 || isGameWon;
+    }
+
+    public boolean isGameWon() {
+        return isGameWon;
+    }
+
+    public String getSelectedWord() {
+        return selectedWord;
+    }
+
+    List<String> loadWordsFromFile(String fileName) {
+        List<String> wordList = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                wordList.add(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return wordList;
+    }
+
+    public void displayHangman(int difficultyLevel) {
+        int maxWrongGuesses = maxAttempts - 1;
+
+        int startingStage = (difficultyLevel == 1) ? 0 : (difficultyLevel == 2) ? 2 : 4;
+
+        int wrongGuesses = maxWrongGuesses - remainingAttempts;
+        int stageIndex = startingStage + wrongGuesses;
+
+        if (stageIndex >= 0 && stageIndex < HANGMAN_STAGES.length) {
+            System.out.println(HANGMAN_STAGES[stageIndex]);
+        } else {
+            System.out.println("Invalid hangman stage index.");
+        }
+    }
+
+    public boolean makeGuess(char letter) {
+        if (guessedLetters.contains(letter)) {
+            System.out.println("You already guessed this letter.");
+            playWrongGuessSound();
+            return false;
+        }
+
+        guessedLetters.add(letter);
+        boolean letterGuessed = false;
+
+        for (int i = 0; i < selectedWord.length(); i++) {
+            if (selectedWord.charAt(i) == letter) {
+                guessedWord.setCharAt(i, letter);
+                letterGuessed = true;
+                playCorrectGuessSound();
+                System.out.println("Correct Guess. Remaining Attempts : " + remainingAttempts);
+            }
+        }
+
+        if (!letterGuessed) {
+            remainingAttempts--;
+            playWrongGuessSound();
+            System.out.println("Wrong guess. Remaining attempts: " + remainingAttempts);
+        }
+
+        if (guessedWord.toString().equals(selectedWord)) {
+            isGameWon = true;
+        }
+
+        return true;
+
+    }
+
+    private void initAudio() {
+        try {
+            AudioInputStream backgroundMusicStream = AudioSystem.getAudioInputStream(new File("BGM.wav"));
+            backgroundMusicClip = AudioSystem.getClip();
+            backgroundMusicClip.open(backgroundMusicStream);
+
+            AudioInputStream correctGuessStream = AudioSystem.getAudioInputStream(new File("correct_guess.wav"));
+            correctGuessClip = AudioSystem.getClip();
+            correctGuessClip.open(correctGuessStream);
+            setVolume(correctGuessClip, getVolume(correctGuessClip) + 6f);
+
+            AudioInputStream wrongGuessStream = AudioSystem.getAudioInputStream(new File("wrong_guess.wav"));
+            wrongGuessClip = AudioSystem.getClip();
+            wrongGuessClip.open(wrongGuessStream);
+            setVolume(wrongGuessClip, getVolume(wrongGuessClip) + 6f);
+
+        } catch (UnsupportedAudioFileException | IOException | LineUnavailableException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void playBackgroundMusic() {
+        if (backgroundMusicClip != null) {
+            backgroundMusicClip.loop(Clip.LOOP_CONTINUOUSLY);
+            backgroundMusicClip.start();
+        }
+    }
+
+    public void stopBackgroundMusic() {
+        if (backgroundMusicClip != null) {
+            backgroundMusicClip.stop();
+            backgroundMusicClip.close();
+        }
+    }
+
+    public void playCorrectGuessSound() {
+        if (correctGuessClip != null) {
+            correctGuessClip.setFramePosition(0);
+            correctGuessClip.start();
+        }
+    }
+
+    public void playWrongGuessSound() {
+        if (wrongGuessClip != null) {
+            wrongGuessClip.setFramePosition(0);
+            wrongGuessClip.start();
+        }
+    }
+
+    private float getVolume(Clip clip) {
+        FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
+        return gainControl.getValue();
+    }
+
+    private void setVolume(Clip clip, float volume) {
+        FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
+        gainControl.setValue(volume);
+    }
+
+}
+
+class HangmanMain {
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Welcome to Hangman!");
+
+        Connection connection = null;
+        String username = null;
+
+        try {
+
+            String dbUrl = "jdbc:mysql://localhost:3306/hangman";
+            String dbUser = "root";
+            String dbPassword = "";
+
+            connection = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
+
+            Statement statement = connection.createStatement();
+            statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS leaderboard (username varchar(50) PRIMARY KEY, wins INT)");
+
+            while (true) {
+                System.out.println();
+                System.out.println("╔══════════════════════════════╗");
+                System.out.println("║          Hangman Game        ║");
+                System.out.println("╠══════════════════════════════╣");
+                System.out.println("║   1. Play Hangman            ║");
+                System.out.println("║   2. View Leaderboard        ║");
+                System.out.println("║   3. Quit                    ║");
+                System.out.println("╚══════════════════════════════╝");
+                System.out.print("Choose an option (1/2/3): ");
+                int choice = scanner.nextInt();
+                scanner.nextLine();
+                System.out.println();
+
+                switch (choice) {
+                    case 1:
+
+                        System.out.print("Enter your username: ");
+                        username = scanner.nextLine();
+
+                        int wins = 0;
+                        PreparedStatement selectStatement = connection
+                                .prepareStatement("SELECT wins FROM leaderboard WHERE username = ?");
+                        selectStatement.setString(1, username);
+                        ResultSet resultSet = selectStatement.executeQuery();
+                        if (resultSet.next()) {
+                            wins = resultSet.getInt("wins");
+                        }
+
+                        System.out.print("Select difficulty level (1: Easy, 2: Medium, 3: Hard): ");
+                        int difficultyLevel = scanner.nextInt();
+                        scanner.nextLine();
+
+                        HangmanGame game = new HangmanGame();
+                        game.playBackgroundMusic();
+                        game.selectWord(difficultyLevel);
+
+                        while (!game.isGameOver()) {
+                            game.displayWordWithGuesses();
+                            System.out.print("Guess a letter : ");
+                            char letter = scanner.next().charAt(0);
+                            game.makeGuess(letter);
+                            game.displayHangman(difficultyLevel);
+                        }
+
+                        if (game.isGameWon()) {
+                            System.out.println("Congratulations! You won!");
+                            wins++;
+
+                            PreparedStatement updateStatement = connection.prepareStatement(
+                                    "INSERT INTO leaderboard (username, wins) VALUES (?, ?) ON DUPLICATE KEY UPDATE wins = wins + 1");
+                            updateStatement.setString(1, username);
+                            updateStatement.setInt(2, wins);
+                            updateStatement.executeUpdate();
+
+                            game.playCorrectGuessSound();
+                        } else {
+                            System.out.println("Game over! The word was: " + game.getSelectedWord());
+                            game.playWrongGuessSound();
+                        }
+
+                        game.stopBackgroundMusic();
+                        break;
+
+                    case 2:
+                        System.out.println("╔══════════════════════════╗");
+                        System.out.println("║       Leaderboard        ║");
+                        System.out.println("╠══════════════════════════╣");
+                        PreparedStatement p_statement = connection
+                                .prepareStatement("SELECT username, wins FROM leaderboard");
+                        ResultSet rs = p_statement.executeQuery();
+                        while (rs.next()) {
+                            String user = rs.getString("username");
+                            int finalwins = rs.getInt("wins");
+                            System.out.println("  " + user + ": " + finalwins + " wins");
+                        }
+                        System.out.println("╚══════════════════════════╝");
+                        System.out.println();
+                        break;
+
+                    case 3:
+                        System.out.println("Thank you for playing Hangman!");
+                        return;
+
+                    default:
+                        System.out.println("Invalid choice. Please choose a valid option.");
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (connection != null) {
+                    connection.close();
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
