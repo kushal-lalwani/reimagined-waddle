@@ -1,45 +1,39 @@
 import os
-import boto3
+from flask import Flask, request, jsonify
+from utils import upload_to_s3,store_metadata
 from postgres_config import connect_to_db
 
-def upload_to_s3(file_path):
-    s3_client = boto3.client('s3')
-    file_name = os.path.basename(file_path)
-    file_extension = file_name.split('.')[-1]
+app = Flask(__name__)
 
-    try:
-        s3_client.upload_file(file_path,'files-bucket-a', f"{file_extension}/{file_name}")
-    except Exception as e:
-        print(e)
+UPLOAD_FOLDER = 'Uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-def store_metadata(file_path):
-    cur = conn.cursor()
 
-    try:
-        file_name = os.path.basename(file_path)
-        file_size = os.path.getsize(file_path)
-        file_extension = file_name.split('.')[-1]
+@app.post('/upload')
+def get_file_paths():
+    files = request.files.getlist('files')
+    ids = request.form.getlist('ids')
+    uploaded_files = []
 
-        query = 'INSERT INTO metadata.file_metadata (file_name, file_size, file_extension ) VALUES ( %s , %s , %s)'
-        cur.execute(query, (file_name, file_size, file_extension ))
-        conn.commit()
-        print("File metadata stored")
-    except Exception as e:
-        print(e)
+    if len(files) != len(ids):
+        return jsonify({"error": "Number of files and IDs must match"}), 400
 
+    conn = connect_to_db()
 
-file_paths = [
-    './Files/IMG-1.png',
-    './Files/IMG-2.png',
-    './Files/TEXT-1.txt',
-    './Files/TEXT-2.txt',
-    './Files/PDF-1.pdf'
-]
+    for file, file_id in zip(files, ids):
+        if file.filename == '':
+            continue
+        file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(file_path)
 
-conn = connect_to_db()
-for file_path in file_paths:
-    upload_to_s3(file_path)
-    store_metadata(file_path)
+        upload_to_s3(file_path, file_id)
+        store_metadata(conn, file_path,file_id)
+        uploaded_files.append({"id": file_id, "filename": file.filename})
 
-conn.close()
+        # os.remove(file_path)
+
+    conn.close()
+    return jsonify({"message": "Files uploaded successfully", "files": uploaded_files})
+
+app.run(debug=True)
